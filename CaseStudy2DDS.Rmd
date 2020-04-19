@@ -1,0 +1,281 @@
+---
+title: "Case Study 2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#First I will include the neccesary libraries
+
+```{r , echo=FALSE}
+library(dplyr)
+library(ggplot2)
+library(ggcorrplot)
+library(GGally)
+library(ggpubr)
+library(MASS)
+library(class)
+library(caret)
+library(e1071)
+```
+
+
+
+#Read the data and remove the variables that are not needed since they only contain one level
+
+```{r , echo=FALSE}
+caseStudy = read.csv("C:/Users/Mrinmoy/Documents/School/Doing Data Science/MSDS_6306_Doing-Data-Science-Master/Project 2/CaseStudy2-data.csv")
+
+caseStudy$EmployeeCount <- NULL
+caseStudy$StandardHours <- NULL
+caseStudy$Over18 <- NULL
+caseStudy$ID <- NULL
+
+
+```
+
+# Create Correlogram for continous variables
+```{r}
+caseStudy1 <- dplyr::select(caseStudy,"Age","DailyRate","DistanceFromHome","Education","EmployeeNumber",
+                     "EnvironmentSatisfaction","JobInvolvement","JobLevel","JobSatisfaction",
+                     "MonthlyIncome","MonthlyRate","NumCompaniesWorked","PercentSalaryHike",
+                     "PerformanceRating","RelationshipSatisfaction","StockOptionLevel","TotalWorkingYears",
+                     "TrainingTimesLastYear","WorkLifeBalance","YearsAtCompany","YearsInCurrentRole",
+                     "YearsSinceLastPromotion", "YearsWithCurrManager")
+corr <- cor(caseStudy1, use = "complete.obs")
+corr<- round(corr,2)
+ggcorrplot(corr, hc.order = TRUE, 
+           type = "lower", 
+           lab = TRUE, 
+           lab_size = 3, 
+            
+           title="Correlogram of Continuous variables", 
+           ggtheme= theme_grey,
+           colors = c("#6D9EC1","white","#E46726"))
+```
+
+#Change the factoral ordinal numbers to categorical variables and then create bar charts of these variables and a histogram of Monthly Income with the level Attrition shown through out
+
+```{r}
+caseStudy2 <- caseStudy
+
+caseStudy2$JobSatisfaction <- ordered(caseStudy2$JobSatisfaction, levels = 1:4,
+                                      labels = c("Low","Medium","High","Very High"))
+
+caseStudy2$JobInvolvement <- ordered(caseStudy2$JobInvolvement, levels = 1:4,
+                                      labels = c("Low","Medium","High","Very High"))
+
+caseStudy2$RelationshipSatisfaction <- ordered(caseStudy2$RelationshipSatisfaction, levels = 1:4,
+                                     labels = c("Low","Medium","High","Very High"))
+
+caseStudy2$PerformanceRating <- ordered(caseStudy2$PerformanceRating, levels = 1:4,
+                                               labels = c("Low","Good","Excellent","Outstanding"))
+
+caseStudy2$WorkLifeBalance <- ordered(caseStudy2$WorkLifeBalance, levels = 1:4,
+                                        labels = c("Bad","Good","Better","Best"))
+
+caseStudy2$Education <- ordered(caseStudy2$Education, levels = 1:5,
+                                      labels = c("Below College","College","Bachelor","Master","Doctor"))
+
+JobSatBar <- ggplot(data = caseStudy2) + geom_bar(aes(x=JobSatisfaction,fill = Attrition))
+
+JobInvolvBar <- ggplot(data = caseStudy2) + geom_bar(aes(x=JobInvolvement,fill = Attrition))
+
+RelatInvolvBar <- ggplot(data = caseStudy2) + geom_bar(aes(x=RelationshipSatisfaction,fill = Attrition))
+
+PerforRatBar <- ggplot(data = caseStudy2) + geom_bar(aes(x=PerformanceRating,fill = Attrition))
+
+WLBBar <- ggplot(data = caseStudy2) + geom_bar(aes(x=WorkLifeBalance,fill = Attrition))
+
+EducBar <- ggplot(data = caseStudy2) + geom_bar(aes(x=Education,fill = Attrition))
+
+BusTravBar <- ggplot(data = caseStudy2) + geom_bar(aes(x=BusinessTravel,fill = Attrition))
+
+IncomeHist <- ggplot(data = caseStudy2,aes(x=MonthlyIncome, fill = Attrition,color=Attrition)) + geom_histogram(alpha=0.5, position="identity")
+
+ggarrange(JobSatBar,JobInvolvBar,RelatInvolvBar,PerforRatBar,WLBBar,EducBar,BusTravBar, IncomeHist)
+```
+
+
+#Since there is skewness in MonthlyIncome we try doing a log transformation to reduce the lack of normality
+
+
+```{r}
+caseStudyLog <-caseStudy
+caseStudyLog$logMonthlyIncome <- log(caseStudyLog$MonthlyIncome)
+
+logIncomeHist <- ggplot(data = caseStudyLog,aes(x=logMonthlyIncome, fill = Attrition,color=Attrition)) + geom_histogram(alpha=0.5, position="identity")
+logIncomeHist
+
+
+```
+
+
+#Linear Regression: 1st model through variable selection by EDA, second is the same as the first but using the log transformation, 3rd model uses stepwise regression
+
+```{r}
+set.seed(5)
+numRMSPEs = 1000
+numRMSPEAIC = 10
+RMSPEHolderModel1 = numeric(numRMSPEs)
+RMSPEHolderModel2 = numeric(numRMSPEs)
+RMSPEHolderModel3 = numeric(numRMSPEAIC)
+
+for (i in 1:numRMSPEs)
+{
+  TrainObs = sample(seq(1,dim(caseStudy)[1]),round(.75*dim(caseStudy)[1]),replace = FALSE)
+  caseStudyTrain = caseStudy[TrainObs,]
+  caseStudyTrain
+  caseStudyTest = caseStudy[-TrainObs,]
+  caseStudyTest
+  
+  #RMSPE Model 1
+  IncomeModel1 <- glm(MonthlyIncome ~ JobLevel + TotalWorkingYears + Age + YearsAtCompany, data = caseStudyTrain)
+  IncomeModel1_Preds = predict(IncomeModel1, newdata = caseStudyTest)
+  RMSPE = sqrt(mean((caseStudyTest$MonthlyIncome - IncomeModel1_Preds)^2))
+  RMSPE
+  RMSPEHolderModel1[i] = RMSPE
+}
+
+for (i in 1:numRMSPEs)
+{
+  TrainObs = sample(seq(1,dim(caseStudyLog)[1]),round(.75*dim(caseStudyLog)[1]),replace = FALSE)
+  caseStudyTrain = caseStudyLog[TrainObs,]
+  caseStudyTrain
+  caseStudyTest = caseStudyLog[-TrainObs,]
+  caseStudyTest
+  
+  #RMSPE Model 2
+  IncomeModel2 <- glm(logMonthlyIncome ~ JobLevel + TotalWorkingYears + Age + YearsAtCompany, data = caseStudyTrain)
+  IncomeModel2_Preds = predict(IncomeModel2, newdata = caseStudyTest)
+  RMSPE2 = sqrt(mean((caseStudyTest$MonthlyIncome - exp(IncomeModel2_Preds))^2))
+  RMSPE2
+  RMSPEHolderModel2[i] = RMSPE2
+  
+   
+}
+
+for (i in 1:numRMSPEAIC)
+{
+  TrainObs = sample(seq(1,dim(caseStudy)[1]),round(.75*dim(caseStudy)[1]),replace = FALSE)
+  caseStudyTrain = caseStudy[TrainObs,]
+  caseStudyTrain
+  caseStudyTest = caseStudy[-TrainObs,]
+  caseStudyTest
+  
+  #RMSPE Model 3
+  IncomeModelFull <- glm(MonthlyIncome ~ ., data = caseStudyTrain)
+  IncomeModel3 <- stepAIC (IncomeModelFull, direction = "both", trace = FALSE)
+  IncomeModel3_Preds = predict(IncomeModel3, newdata = caseStudyTest)
+  RMSPE3 = sqrt(mean((caseStudyTest$MonthlyIncome - IncomeModel3_Preds)^2))
+  RMSPE3
+  RMSPEHolderModel3[i] = RMSPE3
+}
+
+
+summary(IncomeModel1)
+mean(RMSPEHolderModel1)
+
+summary(IncomeModel2)
+mean(RMSPEHolderModel2)
+
+summary(IncomeModel3)
+mean(RMSPEHolderModel3)
+
+```
+
+
+#KNN Classification
+
+```{r}
+caseStudy3 <- dplyr::select(caseStudy,"Age","DailyRate","DistanceFromHome","Education","EmployeeNumber",
+                     "EnvironmentSatisfaction","JobInvolvement","JobLevel","JobSatisfaction",
+                     "MonthlyIncome","MonthlyRate","NumCompaniesWorked","PercentSalaryHike",
+                     "PerformanceRating","RelationshipSatisfaction","StockOptionLevel","TotalWorkingYears",
+                     "TrainingTimesLastYear","WorkLifeBalance","YearsAtCompany","YearsInCurrentRole",
+                     "YearsSinceLastPromotion", "YearsWithCurrManager","Attrition")
+set.seed(6)
+iterations = 500
+numks = 50
+splitPerc = .75
+masterAcc = matrix(nrow = iterations, ncol = numks)
+
+for(j in 1:iterations)
+{
+  accs = data.frame(accuracy = numeric(50), k = numeric(50))
+  trainIndices = sample(1:dim(caseStudy3)[1],round(splitPerc * dim(caseStudy3)[1]))
+  train = caseStudy3[trainIndices,]
+  test = caseStudy3[-trainIndices,]
+  for(i in 1:numks)
+  {
+    classifications = knn(train[,1:23],test[,1:23],train$Attrition, prob = TRUE, k = i)
+    table(classifications,test$Attrition)
+    CM = confusionMatrix(table(classifications,test$Attrition))
+    masterAcc[j,i] = CM$overall[1]
+  }
+  
+}
+
+MeanAcc = colMeans(masterAcc)
+
+plot(seq(1,numks,1),MeanAcc, type = "l")
+
+
+
+```
+
+
+#Naive Bayes since KNN had a 0 specificity
+
+```{r}
+set.seed(9)
+TrainObs = sample(seq(1,dim(caseStudy)[1]),round(.75*dim(caseStudy)[1]),replace = FALSE)
+  caseStudyTrain = caseStudy[TrainObs,]
+  caseStudyTrain
+  caseStudyTest = caseStudy[-TrainObs,]
+  caseStudyTest
+nbModel1<-naiveBayes(formula = Attrition ~ ., data = caseStudyTrain)
+nbPred1 <- predict(nbModel1, caseStudyTest)
+table(nbPred1,caseStudyTest$Attrition)
+confusionMatrix(table(nbPred1,caseStudyTest$Attrition))
+
+
+nbModel2<-naiveBayes(formula = Attrition ~ Age + BusinessTravel + DailyRate + Department + DistanceFromHome + Education + EducationField + EmployeeNumber + EnvironmentSatisfaction + Gender + HourlyRate + JobInvolvement + JobRole + JobSatisfaction + MaritalStatus + MonthlyRate + NumCompaniesWorked + OverTime + PercentSalaryHike + PerformanceRating + StockOptionLevel + TrainingTimesLastYear + WorkLifeBalance, data = caseStudyTrain)
+nbPred2 <- predict(nbModel2, caseStudyTest)
+table(nbPred2,caseStudyTest$Attrition)
+confusionMatrix(table(nbPred2,caseStudyTest$Attrition))
+
+```
+
+
+
+#Prediction files
+
+```{r}
+noAttrition = read.csv("C:/Users/Mrinmoy/Documents/School/Doing Data Science/MSDS_6306_Doing-Data-Science-Master/Project 2/CaseStudy2CompSet No Attrition.csv")
+
+noSalary = read.csv("C:/Users/Mrinmoy/Documents/School/Doing Data Science/MSDS_6306_Doing-Data-Science-Master/Project 2/CaseStudy2CompSet No Salary.csv")
+
+salaryPrediction <- predict(IncomeModel3,newdata = noSalary)
+
+attritionPrediction <- predict(nbModel1, newdata = noAttrition ) 
+
+#write.csv(salaryPrediction, file = "C:/Users/Mrinmoy/Documents/School/Doing Data Science/Case2PredictionsBhaumik Salary.csv")
+
+#write.csv(attritionPrediction, file = "C:/Users/Mrinmoy/Documents/School/Doing Data Science/Case2PredictionsBhaumik Attrition.csv")
+
+```
+
+
+
+
+
+
+#Executive Summary
+
+This data was very interesting, a lot of the variables that you would think would affect the other didn't really while some seemed to.  The distribution of attrition was particularly interesting especially when compared to the monthly income.  After going through the data, I was able to cycle through a few models for the regression and and the classifier model.  When trying to do my personal variable selection depending on what I found through my exploration it always seemed like if I did a stewise regression or if I just left all the variables in the model it ended up working better.  
+
+#Video Presentation
+https://www.screencast.com/t/tY87yiAnx
